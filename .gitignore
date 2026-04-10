@@ -15,7 +15,13 @@ venv/
 dist/
 build/
 
+# Frontend
+node_modules/
+frontend/dist/
+*.log
+
 # Java
+java-impl/
 target/
 *.class
 *.jar
@@ -24,8 +30,12 @@ target/
 *.iml
 
 # Go
-go-impl/bin/
-go-impl/vendor/
+go-impl/
+vendor/
+
+# Docs (regenerate locally)
+*.md
+!README.md
 
 # IDE
 .vscode/
@@ -42,10 +52,10 @@ Thumbs.db
 docker-compose.override.yml
 
 # Logs
-*.log
 logs/
 
 # Data
 *.db
 *.sqlite3
 vector_store/
+run/

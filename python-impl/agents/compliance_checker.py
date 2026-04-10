@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -161,6 +162,10 @@ class ComplianceCheckerAgent:
         rule_result = await self.rule_check(content)
 
         if not rule_result.passed and rule_result.risk_level in ("high", "critical"):
+            return rule_result
+
+        use_llm_check = os.getenv("ENABLE_LLM_COMPLIANCE", "0") == "1"
+        if not use_llm_check:
             return rule_result
 
         llm_result = await self.llm_check(content)

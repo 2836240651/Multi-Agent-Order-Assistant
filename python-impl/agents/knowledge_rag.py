@@ -12,6 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from memory.long_term import LongTermMemory
+from memory.query_cache import QueryCache
 from tracing.otel_config import trace_agent_call
 
 
@@ -41,9 +42,15 @@ QUERY_REWRITE_PROMPT = """请将用户的口语化问题改写为更适合向量
 class KnowledgeRAGAgent:
     """知识检索Agent - 实现完整RAG流程"""
 
-    def __init__(self, llm: ChatOpenAI, long_term_memory: LongTermMemory | None = None):
+    def __init__(
+        self,
+        llm: ChatOpenAI,
+        long_term_memory: LongTermMemory | None = None,
+        query_cache: QueryCache | None = None,
+    ):
         self.llm = llm
         self.long_term_memory = long_term_memory or LongTermMemory()
+        self.query_cache = query_cache or QueryCache()
 
     @trace_agent_call("rag_query_rewrite")
     async def rewrite_query(self, original_query: str) -> str:
@@ -52,12 +59,28 @@ class KnowledgeRAGAgent:
             HumanMessage(content=QUERY_REWRITE_PROMPT.format(query=original_query)),
         ]
         response = await self.llm.ainvoke(messages)
-        return response.content.strip()
+        content = response.content
+        if isinstance(content, list):
+            content = content[0].text if hasattr(content[0], 'text') else str(content[0])
+        return str(content).strip()
 
     @trace_agent_call("rag_retrieve")
-    async def retrieve_documents(self, query: str, top_k: int = 5) -> list[dict]:
-        """从向量数据库检索相关文档"""
-        docs = self.long_term_memory.search(query, top_k=top_k)
+    async def retrieve_documents(
+        self, query: str, top_k: int = 5, user_id: str = "anonymous"
+    ) -> list[dict]:
+        """
+        从向量数据库检索相关文档（使用混合搜索：向量 + BM25 + RRF）
+        支持 QueryCache 缓存加速
+        """
+        cached = await self.query_cache.get(query, user_id)
+        if cached is not None:
+            return cached
+
+        docs = self.long_term_memory.search_hybrid(query, top_k=top_k)
+
+        if docs:
+            await self.query_cache.set(query, user_id, docs)
+
         return docs
 
     @trace_agent_call("rag_rerank")
@@ -128,10 +151,11 @@ class KnowledgeRAGAgent:
             return state
 
         original_query = messages[-1].content
+        user_id = state.get("user_id", "anonymous")
 
         rewritten_query = await self.rewrite_query(original_query)
 
-        raw_docs = await self.retrieve_documents(rewritten_query, top_k=5)
+        raw_docs = await self.retrieve_documents(rewritten_query, top_k=20, user_id=user_id)
 
         reranked_docs = await self.rerank_documents(rewritten_query, raw_docs, top_k=3)
 
