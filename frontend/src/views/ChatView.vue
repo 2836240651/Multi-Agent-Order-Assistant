@@ -6,10 +6,13 @@
  * - X-Tenant-Id 头从 localStorage 取（默认 tenant-a）
  */
 import { reactive, ref, computed, onMounted, nextTick } from "vue";
+import { authStore } from "../stores/auth.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
-const tenantId = ref(localStorage.getItem("tenant_id") || "tenant-a");
+const tenantId = ref(
+  authStore.tenantId ? String(authStore.tenantId) : localStorage.getItem("tenant_id") || "1"
+);
 const threadId = ref("");
 const input = ref("耳机能 7 天无理由退货吗？");
 const sending = ref(false);
@@ -40,13 +43,17 @@ async function send() {
   scrollBottom();
 
   try {
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Tenant-Id": tenantId.value,
+      Accept: "text/event-stream",
+    };
+    if (authStore.accessToken) {
+      headers.Authorization = `Bearer ${authStore.accessToken}`;
+    }
     const resp = await fetch(`${API_BASE}/api/v1/chat`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Tenant-Id": tenantId.value,
-        Accept: "text/event-stream",
-      },
+      headers,
       body: JSON.stringify({
         messages: messages
           .filter((m) => m !== asstMsg)
