@@ -33,9 +33,8 @@ target/
 go-impl/
 vendor/
 
-# Docs (regenerate locally)
-*.md
-!README.md
+# Docs：按 harness 规范，文档进仓库作唯一事实来源（不再 regenerate locally）
+# 历史 *.md 全局排除规则已废弃。如有需要排除的临时文档，逐条加白名单。
 
 # IDE
 .vscode/

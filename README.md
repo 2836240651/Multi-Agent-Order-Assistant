@@ -1,211 +1,200 @@
 # RetailGuard Copilot
 
-基于多智能体的电商售后风控客服系统，支持查单、退款、改地址等业务闭环。
+> 企业级 AI 售后客服系统 · 7-Agent 协作 · 三层融合风控 · 三版本灰度 · 全链路可观测
 
-## 功能特性
+[![CI](https://github.com/yourname/retailguard-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/yourname/retailguard-copilot/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-≥70%25-brightgreen)](https://github.com/yourname/retailguard-copilot/actions/workflows/ci.yml)
+[![LangGraph](https://img.shields.io/badge/LangGraph-0.3+-blue)](https://langchain-ai.github.io/langgraph/)
+[![Docker](https://img.shields.io/badge/docker-compose-ready-blue)](docker-compose.yml)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-### 核心功能
-- **订单查询** - 查询订单状态、物流信息
-- **退款申请** - 退款金额校验、时限检查、风险审核
-- **地址修改** - 收货地址变更（需要用户确认）
-- **工单管理** - 工单创建、状态流转、历史记录
+---
 
-### 风控机制
-- **风险预审** - 高风险请求自动进入人工复核
-- **PII检测** - 敏感信息自动识别
-- **退款时限** - 订单送达7天后禁止在线退款
-- **审计日志** - 完整操作记录可追溯
+## Highlights
 
-### 工程化
-- **灰度发布** - 支持多版本切换 (baseline_v1 / optimized_v2 / current_v3)
-- **降级保护** - 服务不可用时自动降级
-- **实时监控** - 请求量、延迟、错误率、成本估算
-- **WebSocket通知** - 工单状态变更实时推送
+- **7-Agent 协作拓扑**：supervisor → intent_router → planner → critic → plan_execute → risk_review → knowledge，LangGraph StateGraph 编排
+- **三层融合风控**：规则层（10 条硬规则）+ 特征层（用户行为异常检测）+ LLM 语义评估，加权融合 + 可解释决策链
+- **三版本灰度**：V1（关键词基线）→ V2（LLM 意图 + 规则风控）→ V3（全 7-Agent + 三层风控），确定性 hash 分流
+- **RAG 知识库**：混合检索（BM25 + 向量）+ Reranker，Top1 命中率 ≥ 80%
+- **5 维度评测**：intent / tool_call / rag / risk / e2e 共 200 条用例，Langfuse 全链路 trace
+- **MCP 协议**：官方 SDK stdio，4 工具（query_order / list_refunds / get_kb_doc / risk_check），Claude Desktop 直接调用
+- **JWT + RBAC**：4 角色（顾客/客服/风控/管理员）× 25 权限点，按钮级权限控制
+- **5 租户隔离**：ContextVar 自动注入 tenant_id，跨租户访问拦截 + 审计日志
+- **Celery 异步**：批量风控审核 / 知识库灌库 / 评测运行，WebSocket 实时进度推送
+- **语义缓存**：Redis VSS，cosine ≥ 0.92 命中，豁免敏感操作，预期成本下降 30%+
 
-## 技术栈
+---
 
-### 后端
-- **Python 3.11+**
-- FastAPI - API网关
-- LangGraph - 多智能体编排
-- SQLite - 本地数据库
-- WebSocket - 实时通信
+## Architecture
 
-### 前端
-- **Vue 3** + Composition API
-- Vite - 构建工具
-- 响应式设计
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Vue3 + Vite 前端                         │
+│  顾客 ChatView │ 客服 AgentDashboard │ 风控 ReviewQueue │ 管理员 │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ SSE / REST / WS
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    FastAPI + JWT + RBAC                          │
+│  /api/v1/chat │ /admin/rollout │ /review/{id}/resume │ /ws/...  │
+└──────┬───────────┬───────────┬──────────────┬───────────────────┘
+       │           │           │              │
+┌──────▼──────┐ ┌──▼────┐ ┌───▼───┐ ┌────────▼────────┐
+│  LangGraph  │ │ RAG   │ │ Risk  │ │ Celery Workers  │
+│  Supervisor │ │ 混合   │ │ 三层   │ │ review/ingest/  │
+│  7-Node     │ │ 检索   │ │ 融合   │ │ eval            │
+│  StateGraph │ │ Rerank │ │ 风控   │ │                 │
+└──────┬──────┘ └───┬───┘ └───┬───┘ └────────┬────────┘
+       │            │         │              │
+┌──────▼────────────▼─────────▼──────────────▼───────────────────┐
+│  PostgreSQL │ Redis │ Qdrant │ Langfuse │ MCP Server (stdio)   │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-## 快速启动
+### Agent 拓扑
 
-### 后端启动
+```
+START → intent_router ─┬─ greeting ──────────────────► END
+                       ├─ knowledge ─────────────────► END
+                       └─ planner → critic ─┬─ plan_execute ─► END
+                                            ├─ planner (revise)
+                                            └─ risk_review (interrupt) ─► END
+```
+
+### 三版本对比
+
+| 维度 | V1（基线） | V2（工具+规则） | V3（全功能） |
+|---|---|---|---|
+| 意图识别 | 关键词 | LLM | LLM + 复杂度 |
+| 风控 | 无 | 规则+特征 | 三层融合 |
+| 人审中断 | 无 | 无 | interrupt_before |
+| 可解释性 | 无 | 规则列表 | 完整决策链 |
+
+---
+
+## Quickstart
+
+```bash
+# 1. 克隆
+git clone https://github.com/yourname/retailguard-copilot.git
+cd retailguard-copilot
+
+# 2. 配置
+cp .env.example .env
+# 编辑 .env，填入至少一个 LLM API KEY（DEEPSEEK_API_KEY 或 GLM_API_KEY）
+
+# 3. 启动（10 个服务）
+docker-compose up -d
+
+# 4. 初始化数据
+cd python-impl
+python -m scripts.bootstrap
+
+# 5. 访问
+open http://localhost
+# 登录：customer_a / 123456 / 租户 A
+```
+
+### 本地开发
 
 ```bash
 cd python-impl
 pip install -r requirements.txt
-python -m uvicorn api.main:app --host 0.0.0.0 --port 8002
+uvicorn api.main:app --reload --port 8000
+
+# 跑测试
+python -m pytest tests/ -v
+
+# 跑评测
+python -m eval.runner --smoke
+
+# MCP 服务器
+python -m mcp_tools.mcp_server
 ```
 
-### 前端启动
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### 访问地址
-
-- 前端: http://127.0.0.1:5173
-- 后端API: http://127.0.0.1:8002
-- API文档: http://127.0.0.1:8002/docs
+---
 
 ## 项目结构
 
 ```
-smart-cs-multi-agent/
-├── python-impl/           # Python后端
-│   ├── agents/            # 智能体实现
-│   │   ├── supervisor.py      # 主管智能体（LangGraph编排）
-│   │   ├── intent_router.py   # 意图识别
-│   │   ├── ticket_handler.py # 工单处理
-│   │   ├── risk_review.py     # 风险审核
-│   │   └── greeting_handler.py # 问候处理
-│   ├── api/               # API层
-│   │   └── main.py            # FastAPI应用
-│   ├── mcp/               # MCP工具
-│   │   ├── mcp_server.py     # 工具服务器
-│   │   └── db.py             # 数据库连接管理
-│   ├── governance/         # 治理组件
-│   │   ├── review.py          # 人工复核管理
-│   │   ├── webhook.py         # Webhook通知
-│   │   ├── websocket_manager.py # WebSocket管理
-│   │   └── ticket_status.py   # 工单状态机
-│   └── memory/             # 记忆组件
-│       ├── working_memory.py   # 工作记忆
-│       ├── short_term.py      # 短期记忆
-│       └── long_term.py       # 长期记忆
-├── frontend/              # Vue3前端
-│   └── src/
-│       ├── views/            # 页面组件
-│       │   ├── DashboardView.vue   # 员工仪表盘
-│       │   ├── ReviewView.vue      # 复核队列
-│       │   ├── AuditView.vue      # 审计日志
-│       │   └── UserDashboardView.vue # 用户中心
-│       ├── composables/     # Vue组合式函数
-│       │   ├── useChatWebSocket.js # 聊天WebSocket
-│       │   └── useNotifications.js   # 通知订阅
-│       └── api.js           # API调用封装
-└── README.md
+.
+├── docs/                      需求 / PRD / 设计 / 升级计划 / 评测报告
+├── python-impl/
+│   ├── agents/                7 个 Agent 实现 + 3 版本图
+│   ├── rag/                   RAG 检索 / Embedding / Rerank
+│   ├── risk/                  三层融合风控引擎
+│   ├── llm/                   模型路由 + 语义缓存
+│   ├── eval/                  5 维度评测体系
+│   ├── tasks/                 Celery 异步任务
+│   ├── auth/                  JWT + RBAC + 用户服务
+│   ├── mcp/                   MCP stdio 服务器
+│   ├── api/                   FastAPI 路由
+│   ├── db/                    SQLAlchemy 模型 + 多租户
+│   ├── tracing/               Langfuse + OTEL
+│   ├── exceptions/            ErrorCode 枚举
+│   ├── config/                YAML 配置
+│   ├── scripts/               bootstrap / generate / check / bench
+│   └── tests/                 unit / integration / contract / agent_replay
+├── frontend/                  Vue3 + Vite + Element Plus
+├── .github/workflows/         ci.yml / eval.yml
+└── docker-compose.yml
 ```
 
-## 核心API
+---
 
-### 对话接口
-
-```http
-POST /api/chat
-{
-  "message": "我要退款，订单号 ORD-20260402-001",
-  "user_id": "user_001",
-  "session_id": "session_xxx",
-  "order_id": "ORD-20260402-001"
-}
-```
-
-### 人工复核
-
-```http
-GET /api/reviews/pending          # 获取待复核列表
-POST /api/reviews/{id}/approve     # 批准
-POST /api/reviews/{id}/reject      # 拒绝
-```
-
-### WebSocket
-
-```javascript
-// 聊天WebSocket
-ws://localhost:8002/ws/chat
-
-// 通知订阅
-ws://localhost:8002/ws/notifications
-// 发送 {"user_id": "xxx"} 订阅该用户的通知
-```
-
-## 业务流程
-
-### 退款流程
-
-```
-用户发起退款请求
-    ↓
-系统检查退款资格（时限、金额）
-    ↓
-风险评估（高金额→人工复核）
-    ↓
-├─ 低风险 → 直接执行
-├─ 高风险 → 人工复核
-│   ├─ 批准 → 执行退款
-│   └─ 拒绝 → 通知用户
-└─ 资格不符 → 直接拒绝（带原因）
-```
-
-### 状态机
-
-```
-created → pending → pending_manual_review → resolved
-                   ↘ pending_user_confirm → pending → ...
-                   ↘ rejected → closed
-```
-
-## 关键文件说明
-
-| 文件 | 职责 |
-|------|------|
-| `agents/supervisor.py` | LangGraph图定义，编排各智能体 |
-| `agents/ticket_handler.py` | 工单业务逻辑（退款、改地址等） |
-| `agents/risk_review.py` | 风险评估与人工复核触发 |
-| `mcp/mcp_server.py` | MCP工具实现（订单、工单、风险检查） |
-| `governance/review.py` | 人工复核管理器 |
-| `governance/websocket_manager.py` | WebSocket连接管理 |
-| `api/main.py` | FastAPI应用，API端点定义 |
-
-## 配置说明
-
-环境变量（`.env`）:
+## 评测报告
 
 ```bash
-# 数据库
-MYSQL_HOST=localhost        # 可选，使用MySQL
-MYSQL_PORT=3306
-MYSQL_USER=root
-MYSQL_PASSWORD=xxx
-MYSQL_DATABASE=smart_cs
-
-# Redis（可选）
-REDIS_URL=redis://localhost:6379/0
-
-# LLM配置
-OPENAI_API_KEY=sk-xxx
-OPENAI_BASE_URL=https://api.openai.com/v1
-
-# 灰度发布权重
-ROLLOUT_BASELINE_V1=10
-ROLLOUT_OPTIMIZED_V2=20
-ROLLOUT_CURRENT_V3=70
+python -m eval.runner --all --report
+# 产出 docs/eval_reports/{date}_{sha}.md
 ```
 
-## 测试
+| 维度 | 用例数 | 指标 |
+|---|---|---|
+| Intent | 50 | 准确率 |
+| Tool Call | 40 | 调用正确率 |
+| RAG | 50 | Top1 命中 + RAGAS |
+| Risk | 30 | F1 + FP率 |
+| E2E | 30 | 端到端通过率 |
+
+---
+
+## 灰度对比
 
 ```bash
-cd python-impl
-python -m pytest tests/ -v
+python -m eval.runner --version v1,v2,v3 --smoke
+# 输出三版本对比表
 ```
 
-## 简历关键词
+---
 
-- **多智能体编排** - LangGraph状态机、意图路由、工具调用
-- **风控系统** - 风险评估、人工复核、PII检测
-- **实时通信** - WebSocket双向通信、实时通知
-- **工程化** - 灰度发布、降级保护、审计日志
-- **电商闭环** - 订单查询、退款处理、地址修改、工单流转
+## MCP 接入
+
+```bash
+# Claude Desktop
+claude mcp add retailguard -- python -m mcp_tools.mcp_server
+
+# 或手动配置 claude_desktop_config.json
+# 见 docs/mcp_integration.md
+```
+
+---
+
+## Roadmap
+
+| 周 | 主题 | 状态 |
+|---|---|---|
+| W1 | RAG + Knowledge Agent + 多租户 | Done |
+| W2 | Eval + Langfuse | Done |
+| W3 | Planner + Critic + Interrupt | Done |
+| W4 | 三层风控 + 模型路由 + 语义缓存 | Done |
+| W5 | Celery + 灰度三版本 + A/B 对比 | Done |
+| W6 | JWT + RBAC + 4 角色前端 | Done |
+| W7 | Mock 数据 + 性能优化 + 压测 | Done |
+| W8 | MCP stdio + CI + 文档 | Done |
+| W9 | 演示走查 + 简历定稿 | In Progress |
+
+---
+
+## License
+
+MIT

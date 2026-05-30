@@ -1,11 +1,27 @@
-version: '3.8'
+version: "3.9"
 
+# RetailGuard 全栈：10 个服务一键 docker-compose up -d
 services:
-  # Redis - 短期记忆存储
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: retailguard
+      POSTGRES_PASSWORD: retailguard
+      POSTGRES_DB: retailguard
+    ports:
+      - "15432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retailguard -d retailguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "16379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -13,64 +29,182 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
 
-  # Python实现
+  qdrant:
+    image: qdrant/qdrant:v1.11.0
+    ports:
+      - "16333:6333"   # HTTP API
+      - "16334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/readyz | grep -q ok || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  langfuse-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  langfuse:
+    image: langfuse/langfuse:2
+    ports:
+      - "13000:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-change_me_langfuse_secret_32chars}
+      NEXTAUTH_URL: http://localhost:13000
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-retailguard}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-RetailGuard}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-retailguard-cs}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-智能售后}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-demo}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-demo}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@retailguard.local}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-admin}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-admin123}
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/public/health | grep -q ok || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   python-agent:
     build:
       context: ./python-impl
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "18000:8000"
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      - MODEL_NAME=${MODEL_NAME:-gpt-4o}
-      - REDIS_URL=redis://redis:6379/0
-      - OTEL_SERVICE_NAME=smart-cs-python
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      PG_DSN: postgresql+psycopg://retailguard:retailguard@postgres:5432/retailguard
+      PG_DSN_SYNC: postgresql+psycopg://retailguard:retailguard@postgres:5432/retailguard
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      APP_ENV: ${APP_ENV:-dev}
+      RAG_USE_LOCAL_FALLBACK: ${RAG_USE_LOCAL_FALLBACK:-true}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:-change_me_min_32_chars_for_production_use}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-demo}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-demo}
+      LANGFUSE_HOST: http://langfuse:3000
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
-  # Java实现
-  java-agent:
+  celery-worker:
     build:
-      context: ./java-impl
+      context: ./python-impl
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "tasks.celery_app", "worker", "-Q", "review,ingest,eval", "-c", "2", "--loglevel=info"]
+    environment:
+      PG_DSN: postgresql+psycopg://retailguard:retailguard@postgres:5432/retailguard
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      APP_ENV: ${APP_ENV:-dev}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A tasks.celery_app inspect ping || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  celery-beat:
+    build:
+      context: ./python-impl
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "tasks.celery_app", "beat", "--loglevel=info"]
+    environment:
+      PG_DSN: postgresql+psycopg://retailguard:retailguard@postgres:5432/retailguard
+      REDIS_URL: redis://redis:6379/0
+      APP_ENV: ${APP_ENV:-dev}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'celery beat'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - "10080:80"
     depends_on:
-      redis:
-        condition: service_healthy
+      python-agent:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
-  # Go实现
-  go-agent:
-    build:
-      context: ./go-impl
-      dockerfile: Dockerfile
+  nginx:
+    image: nginx:1.27-alpine
     ports:
-      - "8090:8090"
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - PORT=8090
+      - "10443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      redis:
-        condition: service_healthy
-
-  # Jaeger - 全链路追踪可视化 (可选)
-  jaeger:
-    image: jaegertracing/all-in-one:1.62
-    ports:
-      - "16686:16686"   # Jaeger UI
-      - "4317:4317"     # OTLP gRPC
-      - "4318:4318"     # OTLP HTTP
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
+      - frontend
+      - python-agent
+    profiles:
+      - tls
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t && pgrep nginx"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
+  pg_data:
   redis_data:
+  qdrant_data:
+  langfuse_db_data:

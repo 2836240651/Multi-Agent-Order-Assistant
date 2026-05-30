@@ -1,0 +1,117 @@
+# RetailGuard 測試機獨立棧（與 /opt/ziyi-test 並存，不佔 80/443/3306/6379）
+# 在倉庫根目錄執行：docker compose -f deploy/server/docker-compose.yml up -d
+name: retailguard
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rg-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${RG_POSTGRES_USER:-retailguard}
+      POSTGRES_PASSWORD: ${RG_POSTGRES_PASSWORD:-retailguard}
+      POSTGRES_DB: ${RG_POSTGRES_DB:-retailguard}
+    volumes:
+      - rg_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${RG_POSTGRES_USER:-retailguard} -d ${RG_POSTGRES_DB:-retailguard}"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  redis:
+    image: redis:7-alpine
+    container_name: rg-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - rg_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  qdrant:
+    image: qdrant/qdrant:v1.11.0
+    container_name: rg-qdrant
+    restart: unless-stopped
+    volumes:
+      - rg_qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/readyz | grep -q ok || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+
+  python-agent:
+    build:
+      context: ../../python-impl
+      dockerfile: Dockerfile
+    container_name: rg-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PG_DSN: postgresql+psycopg://${RG_POSTGRES_USER:-retailguard}:${RG_POSTGRES_PASSWORD:-retailguard}@postgres:5432/${RG_POSTGRES_DB:-retailguard}
+      PG_DSN_SYNC: postgresql+psycopg://${RG_POSTGRES_USER:-retailguard}:${RG_POSTGRES_PASSWORD:-retailguard}@postgres:5432/${RG_POSTGRES_DB:-retailguard}
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      KB_DIR: /kb
+      APP_ENV: ${APP_ENV:-dev}
+      RAG_USE_LOCAL_FALLBACK: ${RAG_USE_LOCAL_FALLBACK:-true}
+    volumes:
+      - ../../docs/knowledge_base:/kb:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 20s
+      timeout: 8s
+      retries: 6
+      start_period: 45s
+
+  celery-worker:
+    build:
+      context: ../../python-impl
+      dockerfile: Dockerfile
+    container_name: rg-celery
+    restart: unless-stopped
+    command: ["celery", "-A", "tasks.celery_app", "worker", "-Q", "review,ingest,eval", "-c", "2", "--loglevel=info"]
+    env_file:
+      - .env
+    environment:
+      PG_DSN: postgresql+psycopg://${RG_POSTGRES_USER:-retailguard}:${RG_POSTGRES_PASSWORD:-retailguard}@postgres:5432/${RG_POSTGRES_DB:-retailguard}
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      KB_DIR: /kb
+    volumes:
+      - ../../docs/knowledge_base:/kb:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: rg-frontend
+    restart: unless-stopped
+    ports:
+      # 僅暴露高位端口，避免與 ziyi-test-gateway (80) 衝突
+      - "${RG_HTTP_PORT:-10180}:80"
+    depends_on:
+      python-agent:
+        condition: service_healthy
+
+volumes:
+  rg_pg_data:
+  rg_redis_data:
+  rg_qdrant_data:

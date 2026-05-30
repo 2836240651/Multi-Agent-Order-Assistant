@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python-impl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check . --output-format=github
+      - run: ruff format --check .
+
+  test:
+    name: Tests + Coverage
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python-impl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: python-impl/requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run tests with coverage
+        env:
+          APP_ENV: test
+          RAG_USE_LOCAL_FALLBACK: "true"
+        run: |
+          python -m pytest tests/ -x -q --tb=short --cov=. --cov-report=term-missing --cov-report=html:htmlcov --cov-fail-under=70
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: python-impl/htmlcov/
+          retention-days: 7
+
+  eval-smoke:
+    name: Eval Smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python-impl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: python-impl/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Run eval smoke
+        env:
+          APP_ENV: test
+          RAG_USE_LOCAL_FALLBACK: "true"
+        run: python -m eval.runner --smoke --output /tmp/eval_smoke.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-smoke-results
+          path: /tmp/eval_smoke.json
+          retention-days: 7
+
+  check-scripts:
+    name: Mechanism Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python-impl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check no direct LLM imports
+        run: python scripts/check_no_direct_llm.py
+      - name: Check ErrorCode usage
+        run: python scripts/check_error_code.py || true
+      - name: Check AGENTS.md consistency
+        run: python scripts/check_agents_md.py || true

@@ -1,0 +1,18 @@
+default:
+  rules: 0.40
+  features: 0.30
+  llm: 0.30
+  thresholds:
+    pass: 30
+    review: 50
+    reject: 90
+
+# 高价值租户（示例：专项活动期间宽松）
+tenant_2:
+  rules: 0.45
+  features: 0.35
+  llm: 0.20
+  thresholds:
+    pass: 25
+    review: 55
+    reject: 85

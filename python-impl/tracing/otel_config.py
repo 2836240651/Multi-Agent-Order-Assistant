@@ -264,3 +264,13 @@ class RuntimeObservability:
             "error_breakdown": dict(sorted(self._by_error_code.items(), key=lambda item: item[1], reverse=True)),
             "recent_events": list(self._recent_events),
         }
+
+
+_runtime_obs_instance: RuntimeObservability | None = None
+
+
+def get_runtime_obs() -> RuntimeObservability:
+    global _runtime_obs_instance
+    if _runtime_obs_instance is None:
+        _runtime_obs_instance = RuntimeObservability()
+    return _runtime_obs_instance

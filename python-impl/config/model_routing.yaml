@@ -1,0 +1,43 @@
+profiles:
+  light:
+    primary:
+      name: "qwen-turbo"
+      provider: "dashscope"
+      max_tokens: 512
+      temperature: 0.3
+    fallback:
+      name: "deepseek-chat"
+      provider: "deepseek"
+      max_tokens: 512
+      temperature: 0.3
+
+  medium:
+    primary:
+      name: "glm-4-flash"
+      provider: "glm"
+      max_tokens: 2048
+      temperature: 0.5
+    fallback:
+      name: "deepseek-chat"
+      provider: "deepseek"
+      max_tokens: 2048
+      temperature: 0.5
+
+  heavy:
+    primary:
+      name: "deepseek-reasoner"
+      provider: "deepseek"
+      max_tokens: 4096
+      temperature: 0.2
+    fallback:
+      name: "glm-4"
+      provider: "glm"
+      max_tokens: 4096
+      temperature: 0.2
+
+  embedding:
+    primary:
+      name: "text-embedding-ada-002"
+      provider: "openai"
+      max_tokens: 8192
+      temperature: 0.0

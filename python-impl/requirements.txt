@@ -1,22 +1,59 @@
-langgraph>=0.3.0
-langchain>=0.3.0
-langchain-openai>=0.3.0
-langchain-community>=0.3.0
-langsmith>=0.2.0
+# === Web 框架 ===
 fastapi>=0.115.0
-uvicorn>=0.32.0
+uvicorn[standard]>=0.32.0
 pydantic>=2.10.0
-redis>=5.2.0
-faiss-cpu>=1.9.0
-opentelemetry-api>=1.29.0
-opentelemetry-sdk>=1.29.0
-opentelemetry-exporter-otlp>=1.29.0
-opentelemetry-instrumentation-fastapi>=0.50b0
-mcp>=1.0.0
+pydantic-settings>=2.6.0
+sse-starlette>=2.1.0
+
+# === Agent 框架 ===
+langgraph>=0.3.0
+langgraph-checkpoint-postgres>=2.0.0
+langchain-core>=0.3.0
+
+# === LLM 客户端（多家原生 SDK，全部走 llm.router 不直调） ===
+openai>=1.50.0
+anthropic>=0.40.0
 httpx>=0.28.0
-python-dotenv>=1.0.0
-tiktoken>=0.8.0
-numpy>=1.26.0
+
+# === 数据层 ===
+sqlalchemy[asyncio]>=2.0.30
+asyncpg>=0.29.0
+psycopg[binary]>=3.2.0
+aiosqlite>=0.20.0
+alembic>=1.14.0
+redis>=5.2.0
+qdrant-client>=1.11.0
+
+# === RAG / Embedding / Rerank ===
 sentence-transformers>=3.0.0
 rank-bm25>=0.2.2
 jieba>=0.42.1
+numpy>=1.26.0
+
+# === 鉴权 ===
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# === MCP ===
+mcp>=1.0.0
+
+# === 观测 ===
+langfuse>=2.50.0
+
+# === 异步任务 ===
+celery[redis]>=5.4.0
+
+# === 通用 ===
+python-dotenv>=1.0.0
+PyYAML>=6.0
+tenacity>=8.3.0
+python-multipart>=0.0.12
+
+# === 开发/测试 ===
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+pytest-cov>=5.0.0
+httpx>=0.28.0
+ruff>=0.7.0
+mypy>=1.13.0
+faker[zh_CN]>=30.0.0

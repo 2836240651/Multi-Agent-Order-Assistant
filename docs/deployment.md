@@ -14,7 +14,7 @@ cp .env.example .env
 python -m api.main
 ```
 
-访问: http://localhost:8000/docs (Swagger UI)
+访问: http://localhost:18000/docs (Swagger UI)
 
 ### Java版本
 
@@ -102,6 +102,6 @@ docker-compose up -d
 | OPENAI_API_KEY | LLM API密钥 | 无 |
 | OPENAI_BASE_URL | API端点 | https://api.openai.com/v1 |
 | MODEL_NAME | 模型名称 | gpt-4o |
-| REDIS_URL | Redis地址 | redis://localhost:6379/0 |
+| REDIS_URL | Redis地址 | redis://localhost:16379/0 |
 | OTEL_SERVICE_NAME | 追踪服务名 | smart-cs-multi-agent |
 | OTEL_EXPORTER_OTLP_ENDPOINT | OTLP端点 | http://localhost:4317 |

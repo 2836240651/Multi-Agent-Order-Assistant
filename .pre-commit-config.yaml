@@ -1,0 +1,48 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: check-no-direct-llm
+        name: 禁止直调 LLM SDK
+        entry: python python-impl/scripts/check_no_direct_llm.py
+        language: python
+        pass_filenames: false
+        files: ^python-impl/.*\.py$
+
+      - id: check-error-code
+        name: 异常必须用 ErrorCode 枚举
+        entry: python python-impl/scripts/check_error_code.py
+        language: python
+        pass_filenames: false
+        files: ^python-impl/.*\.py$
+
+      - id: check-agents-md
+        name: AGENTS.md 一致性
+        entry: python python-impl/scripts/check_agents_md.py
+        language: python
+        pass_filenames: false
+        files: ^python-impl/.*\.py$
+
+      - id: check-tenant-filter
+        name: 禁止显式 tenant_id 过滤
+        entry: python python-impl/scripts/check_tenant_filter.py
+        language: python
+        pass_filenames: false
+
+      - id: check-file-headers
+        name: Python 文件头中文 docstring
+        entry: python python-impl/scripts/check_file_headers.py
+        language: python
+        pass_filenames: false
+
+      - id: drift-scan
+        name: requirements 漂移扫描
+        entry: python python-impl/scripts/drift_scan.py
+        language: python
+        pass_filenames: false
