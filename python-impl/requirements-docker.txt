@@ -1,0 +1,54 @@
+# 測試機 / 生產 Docker 精簡依賴（無 sentence-transformers / 無開發工具）
+# 配合 RAG_USE_LOCAL_FALLBACK=true，Embedding 走 hash，無需 PyTorch
+# 完整開發依賴見 requirements.txt
+
+# === Web 框架 ===
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+sse-starlette>=2.1.0
+
+# === Agent 框架 ===
+langgraph>=0.3.0
+langgraph-checkpoint-postgres>=2.0.0
+langchain-core>=0.3.0
+
+# === LLM 客户端 ===
+openai>=1.50.0
+anthropic>=0.40.0
+httpx>=0.28.0
+
+# === 数据层 ===
+sqlalchemy[asyncio]>=2.0.30
+asyncpg>=0.29.0
+psycopg[binary]>=3.2.0
+aiosqlite>=0.20.0
+alembic>=1.14.0
+redis>=5.2.0
+qdrant-client>=1.11.0
+
+# === RAG（無 sentence-transformers）===
+rank-bm25>=0.2.2
+jieba>=0.42.1
+numpy>=1.26.0
+
+# === 鉴权 ===
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# === MCP ===
+mcp>=1.0.0
+
+# === 观测 ===
+langfuse>=2.50.0
+
+# === 异步任务 ===
+celery[redis]>=5.4.0
+
+# === 通用 ===
+python-dotenv>=1.0.0
+PyYAML>=6.0
+tenacity>=8.3.0
+python-multipart>=0.0.12
+faker[zh_CN]>=30.0.0
