@@ -18,8 +18,8 @@ cd "$ROOT"
 export RG_HTTP_PORT="${RG_HTTP_PORT:-10180}"
 DC="docker compose -f $COMPOSE_FILE --env-file $COMPOSE_ENV"
 
-$DC build --progress=plain python-agent
-$DC build --progress=plain frontend
+$DC build python-agent
+$DC build frontend
 $DC up -d
 $DC exec -T python-agent alembic upgrade head || true
 $DC exec -T python-agent python -m scripts.bootstrap || true
